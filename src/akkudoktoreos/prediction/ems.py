@@ -196,8 +196,6 @@ class EnergieManagementSystem:
                 verbrauch += geladene_menge_eauto
                 verluste_wh_pro_stunde[stunde_since_now] += verluste_eauto
 
-            if self.eauto:
-                eauto_soc_pro_stunde[stunde_since_now] = self.eauto.ladezustand_in_prozent()
             # Process inverter logic
             erzeugung = self.pv_prognose_wh[stunde]
             self.akku.set_charge_allowed_for_hour(self.dc_charge_hours[stunde], stunde)
@@ -231,8 +229,11 @@ class EnergieManagementSystem:
                 netzeinspeisung * self.einspeiseverguetung_euro_pro_wh_arr[stunde]
             )
 
-            # Akku SOC tracking
-            akku_soc_pro_stunde[stunde_since_now] = self.akku.ladezustand_in_prozent()
+            # Akku and EAuto SOC tracking
+            if stunde_since_now + 1 < total_hours:
+                akku_soc_pro_stunde[stunde_since_now + 1] = self.akku.ladezustand_in_prozent()
+                if self.eauto:
+                    eauto_soc_pro_stunde[stunde_since_now + 1] = self.eauto.ladezustand_in_prozent()
 
         # Total cost and return
         gesamtkosten_euro = np.nansum(kosten_euro_pro_stunde) - np.nansum(einnahmen_euro_pro_stunde)
