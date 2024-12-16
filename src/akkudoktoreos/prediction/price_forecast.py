@@ -32,8 +32,9 @@ def repeat_to_shape(array: np.ndarray, target_shape: tuple[int, ...]) -> np.ndar
     return expanded_array
 
 
-def calc_price(euro_pro_mwh) -> float:
+def calc_price(euro_pro_mwh: float) -> float:
     """Calculate the final electricity price per kilowatt-hour (kWh).
+
     This calculation is based on the following cost components:
     - Provider: Tibber
     - Procurement: €1.81 per kWh
@@ -52,10 +53,10 @@ def calc_price(euro_pro_mwh) -> float:
 
 class HourlyElectricityPriceForecast:
     def __init__(
-            self,
-            source: Union[str, Path],
-            config: AppConfig,
-            use_cache: bool = True,
+        self,
+        source: Union[str, Path],
+        config: AppConfig,
+        use_cache: bool = True,
     ) -> None:
         logger.debug("Initializing HourlyElectricityPriceForecast")
         self.cache_dir = config.working_dir / config.directories.cache
@@ -75,10 +76,10 @@ class HourlyElectricityPriceForecast:
         logger.debug(f"Loading data from source: {source}, using cache file: {cache_file}")
 
         if (
-                isinstance(source, str)
-                and self.use_cache
-                and cache_file.is_file()
-                and not self.is_cache_expired()
+            isinstance(source, str)
+            and self.use_cache
+            and cache_file.is_file()
+            and not self.is_cache_expired()
         ):
             logger.debug("Loading data from cache...")
             with cache_file.open("r") as file:
@@ -151,16 +152,16 @@ class HourlyElectricityPriceForecast:
         previous_day_str = (date_obj - timedelta(days=1)).strftime("%Y-%m-%d")
 
         previous_day_prices = [
-            calc_price(entry["marketprice"])
+            calc_price(float(entry["marketprice"]))
             for entry in self.prices
-            if previous_day_str in entry["end"]
+            if previous_day_str in str(entry["end"])
         ]
         last_price_of_previous_day = previous_day_prices[-1] if previous_day_prices else 0
 
         date_prices = [
-            calc_price(entry["marketprice"])
+            calc_price(float(entry["marketprice"]))
             for entry in self.prices
-            if date_str in entry["end"]
+            if date_str in str(entry["end"])
         ]
 
         if len(date_prices) < 24:
@@ -183,7 +184,7 @@ class HourlyElectricityPriceForecast:
             .astimezone(zoneinfo.ZoneInfo("Europe/Berlin"))
         )
 
-        price_list = []
+        price_list: list[float] = []
 
         while start_date < end_date:
             date_str = start_date.strftime("%Y-%m-%d")
@@ -193,9 +194,11 @@ class HourlyElectricityPriceForecast:
                 price_list.extend(daily_prices)
             start_date += timedelta(days=1)
 
+        price_list_np = np.array(price_list)
+
+        # If prediction hours are greater than 0, reshape the price list
         if self.prediction_hours > 0:
-            logger.debug(f"Reshaping price list to match prediction hours: {self.prediction_hours}")
-            price_list = repeat_to_shape(np.array(price_list), (self.prediction_hours,))
+            price_list_np = repeat_to_shape(price_list_np, (self.prediction_hours,))
 
         logger.debug(f"Total prices retrieved for date range: {len(price_list)}")
         return np.round(np.array(price_list), 10)
