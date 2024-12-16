@@ -29,7 +29,7 @@ class OptimizationParameters(BaseModel):
     ems: EnergieManagementSystemParameters
     pv_akku: PVAkkuParameters
     wechselrichter: WechselrichterParameters = WechselrichterParameters()
-    eauto: Optional[EAutoParameters]
+    eauto: Optional[EAutoParameters] = None
     dishwasher: Optional[HomeApplianceParameters] = None
     temperature_forecast: Optional[list[float]] = Field(
         default=None,
