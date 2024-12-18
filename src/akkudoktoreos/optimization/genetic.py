@@ -358,9 +358,7 @@ class optimization_problem:
         gesamtbilanz = o["Gesamtbilanz_Euro"] * (-1.0 if worst_case else 1.0)
 
         # Small Penalty for not discharging
-        gesamtbilanz += sum(
-            0.01 for i in range(self.prediction_hours) if discharge_hours_bin[i] == 0.0
-        )
+        gesamtbilanz += sum(0.01 for value in discharge_hours_bin if value < self.len_ac)
 
         # Penalty for not meeting the minimum SOC (State of Charge) requirement
         # if parameters.eauto_min_soc_prozent - ems.eauto.ladezustand_in_prozent() <= 0.0 and  self.optimize_ev:
@@ -407,7 +405,7 @@ class optimization_problem:
 
         # Insert the start solution into the population if provided
         if start_solution is not None:
-            if len(start_solution) < (2 * self.prediction_hours) + 1:
+            if self.optimize_ev and len(start_solution) < (2 * self.prediction_hours) + 1:
                 start_solution = start_solution[:48]
                 start_solution += [0] * 48
                 start_solution += [0]
