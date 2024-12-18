@@ -68,9 +68,9 @@ class OptimizeResponse(BaseModel):
     eautocharge_hours_float: Optional[list[float]] = Field(description="TBD")
     result: SimulationResult
     eauto_obj: Optional[EAutoResult]
-    start_solution: Optional[list[float]] = Field(
+    start_solution: Optional[list[int]] = Field(
         default=None,
-        description="An array of binary values (0 or 1) representing a possible starting solution for the simulation.",
+        description="An array of State values (0, 1, 2 , ...) representing a possible starting solution for the simulation.",
     )
     washingstart: Optional[int] = Field(
         default=None,
@@ -115,6 +115,7 @@ class optimization_problem:
         self.fix_seed = fixed_seed
         self.optimize_ev = True
         self.optimize_dc_charge = False
+        self.battery_solution = array.array("i", [0] * self.prediction_hours)
 
         # Set a fixed seed for random operations if provided
         if fixed_seed is not None:
@@ -392,7 +393,7 @@ class optimization_problem:
         return (gesamtbilanz,)
 
     def optimize(
-        self, start_solution: Optional[list[int]] = None, ngen: int = 400
+        self, start_solution: Optional[list[int]] = None, start_hour: int = 0, ngen: int = 400
     ) -> Tuple[Any, dict[str, list[Any]]]:
         """Run the optimization process using a genetic algorithm."""
         population = self.toolbox.population(n=300)
@@ -407,8 +408,11 @@ class optimization_problem:
         if start_solution is not None:
             if self.optimize_ev and len(start_solution) < (2 * self.prediction_hours) + 1:
                 start_solution = start_solution[:48]
-                start_solution += [0] * 48
+                start_solution += [0] * self.prediction_hours
                 start_solution += [0]
+
+            # overwrite start_solution from 0 to start_hour from memory
+            start_solution[:start_hour] = self.battery_solution[:start_hour]
 
             for _ in range(3):
                 population.insert(0, creator.Individual(start_solution))
@@ -495,7 +499,7 @@ class optimization_problem:
             "evaluate",
             lambda ind: self.evaluate(ind, ems, parameters, start_hour, worst_case),
         )
-        start_solution, extra_data = self.optimize(parameters.start_solution, ngen=ngen)
+        start_solution, extra_data = self.optimize(parameters.start_solution, start_hour, ngen=ngen)
 
         # Perform final evaluation on the best solution
         o = self.evaluate_inner(start_solution, ems, start_hour)
@@ -516,6 +520,12 @@ class optimization_problem:
                     start_solution[i] = old_state
                 else:
                     o = out
+
+        # save final start_solution to memory from start_hour to self.prediction_hours
+        self.battery_solution[start_hour:] = start_solution[start_hour : self.prediction_hours]
+
+        # get start_solution from memory from 0 to start_hour
+        start_solution[:start_hour] = self.battery_solution[:start_hour]
 
         discharge_hours_bin, eautocharge_hours_index, washingstart_int = self.split_individual(
             start_solution
