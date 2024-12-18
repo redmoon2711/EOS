@@ -358,7 +358,7 @@ class optimization_problem:
         gesamtbilanz = o["Gesamtbilanz_Euro"] * (-1.0 if worst_case else 1.0)
 
         # Small Penalty for not discharging
-        gesamtbilanz += sum(0.01 for value in discharge_hours_bin if value < self.len_ac)
+        # gesamtbilanz += sum(0.01 for value in discharge_hours_bin if value < self.len_ac)
 
         # Penalty for not meeting the minimum SOC (State of Charge) requirement
         # if parameters.eauto_min_soc_prozent - ems.eauto.ladezustand_in_prozent() <= 0.0 and  self.optimize_ev:
@@ -499,6 +499,24 @@ class optimization_problem:
 
         # Perform final evaluation on the best solution
         o = self.evaluate_inner(start_solution, ems, start_hour)
+
+        # forcing discharging if not increase costs
+        for i in range(start_hour, self.prediction_hours):
+            # check state if idle or ac_charge
+            if (
+                start_solution[i] < self.len_ac
+                or 2 * self.len_ac <= start_solution[i] < 3 * self.len_ac
+            ):
+                # try switch to discharge
+                old_state = start_solution[i]
+                start_solution[i] = self.len_ac
+                out = self.evaluate_inner(start_solution, ems, start_hour)
+
+                if out["Gesamtbilanz_Euro"] > o["Gesamtbilanz_Euro"]:
+                    start_solution[i] = old_state
+                else:
+                    o = out
+
         discharge_hours_bin, eautocharge_hours_index, washingstart_int = self.split_individual(
             start_solution
         )
