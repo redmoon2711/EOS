@@ -68,7 +68,7 @@ class OptimizeResponse(BaseModel):
     eautocharge_hours_float: Optional[list[float]] = Field(description="TBD")
     result: SimulationResult
     eauto_obj: Optional[EAutoResult]
-    start_solution: Optional[list[float]] = Field(
+    start_solution: Optional[list[int]] = Field(
         default=None,
         description="An array of binary values (0 or 1) representing a possible starting solution for the simulation.",
     )
