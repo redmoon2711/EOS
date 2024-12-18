@@ -411,7 +411,6 @@ class optimization_problem:
                 start_solution += [0]
 
             for _ in range(3):
-                print(start_solution)
                 population.insert(0, creator.Individual(start_solution))
 
         # Run the evolutionary algorithm
