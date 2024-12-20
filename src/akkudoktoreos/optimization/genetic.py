@@ -504,23 +504,6 @@ class optimization_problem:
         # Perform final evaluation on the best solution
         o = self.evaluate_inner(start_solution, ems, start_hour)
 
-        # forcing discharging if not increase costs
-        for i in range(start_hour, self.prediction_hours):
-            # check state if idle or ac_charge
-            if (
-                start_solution[i] < self.len_ac
-                or 2 * self.len_ac <= start_solution[i] < 3 * self.len_ac
-            ):
-                # try switch to discharge
-                old_state = start_solution[i]
-                start_solution[i] = self.len_ac
-                out = self.evaluate_inner(start_solution, ems, start_hour)
-
-                if out["Gesamtbilanz_Euro"] > o["Gesamtbilanz_Euro"]:
-                    start_solution[i] = old_state
-                else:
-                    o = out
-
         # save final start_solution to memory from start_hour to self.prediction_hours
         self.battery_solution[start_hour:] = start_solution[start_hour : self.prediction_hours]
 
