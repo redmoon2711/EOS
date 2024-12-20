@@ -23,7 +23,7 @@ class Wechselrichter:
 
     def load_evq(self) -> None:
         """ Get the means and standard deviations for a date range."""
-        filepath = r"../src/akkudoktoreos/data/load_profiles.npz"
+        filepath = r"src/akkudoktoreos/data/load_profiles.npz"
         start_day = date.today()
         end_day = start_day + timedelta(hours=48)
         load_forcast = LoadForecast(filepath=filepath, year_energy=start_day.year)
