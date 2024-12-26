@@ -22,6 +22,20 @@ class Wechselrichter:
         )
         self.akku = akku  # Connection to a battery object
         self.self_consumption_predictor = self_consumption_predictor
+        self.scr_lookup: dict = {}
+
+    def calculate_scr(self, erzeugung: float, verbrauch: float) -> float:
+        """ Check if the consumption and production is in the lookup table. If not, calculate and store the value."""
+
+        if verbrauch not in self.scr_lookup:
+            self.scr_lookup[verbrauch] = {}
+
+        if erzeugung not in self.scr_lookup[verbrauch]:
+            scr = self.self_consumption_predictor.calculate_self_consumption(verbrauch, erzeugung)
+            self.scr_lookup[verbrauch][erzeugung] = scr
+            return scr
+
+        return self.scr_lookup[verbrauch][erzeugung]
 
     def energie_verarbeiten(
         self, erzeugung: float, verbrauch: float, hour: int
@@ -39,9 +53,10 @@ class Wechselrichter:
                 netzbezug = -restleistung_nach_verbrauch  # Negative indicates feeding into the grid
                 eigenverbrauch = self.max_leistung_wh
             else:
-                scr = self.self_consumption_predictor.calculate_self_consumption(
-                    verbrauch, erzeugung
-                )
+                scr = self.calculate_scr(erzeugung, verbrauch)
+                # scr = self.self_consumption_predictor.calculate_self_consumption(
+                #     verbrauch, erzeugung
+                # )
 
                 # Remaining power after consumption
                 restleistung_nach_verbrauch = (erzeugung - verbrauch) * scr  # EVQ
