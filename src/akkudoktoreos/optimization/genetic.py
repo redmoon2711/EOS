@@ -1,5 +1,6 @@
 import random
 import time
+import array
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -32,13 +33,13 @@ class OptimizationParameters(BaseModel):
     ems: EnergieManagementSystemParameters
     pv_akku: PVAkkuParameters
     wechselrichter: WechselrichterParameters = WechselrichterParameters()
-    eauto: Optional[EAutoParameters]
+    eauto: Optional[EAutoParameters] = None
     dishwasher: Optional[HomeApplianceParameters] = None
     temperature_forecast: Optional[list[float]] = Field(
         default=None,
         description="An array of floats representing the temperature forecast in degrees Celsius for different time intervals.",
     )
-    start_solution: Optional[list[float]] = Field(
+    start_solution: Optional[list[int]] = Field(
         default=None, description="Can be `null` or contain a previous solution (if available)."
     )
 
@@ -51,8 +52,8 @@ class OptimizationParameters(BaseModel):
 
     @field_validator("start_solution")
     def validate_start_solution(
-        cls, start_solution: Optional[list[float]]
-    ) -> Optional[list[float]]:
+        cls, start_solution: Optional[list[int]]
+    ) -> Optional[list[int]]:
         if start_solution is not None and len(start_solution) < 2:
             raise ValueError("Requires at least two values.")
         return start_solution
@@ -73,7 +74,7 @@ class OptimizeResponse(BaseModel):
     eautocharge_hours_float: Optional[list[float]] = Field(description="TBD")
     result: SimulationResult
     eauto_obj: Optional[EAutoResult]
-    start_solution: Optional[list[float]] = Field(
+    start_solution: Optional[list[int]] = Field(
         default=None,
         description="An array of binary values (0 or 1) representing a possible starting solution for the simulation.",
     )
@@ -120,16 +121,22 @@ class optimization_problem:
         self.optimize_ev = True
         self.optimize_dc_charge = False
 
+        self.len_ac = len(self._config.eos.available_charging_rates_in_percentage)
+
+        # Calculate the number of states
+        if self.optimize_dc_charge:
+            self.total_states = 3 * self.len_ac + 2
+        else:
+            self.total_states = 3 * self.len_ac
+
         # Set a fixed seed for random operations if provided
         if fixed_seed is not None:
             random.seed(fixed_seed)
 
     def decode_charge_discharge(
-        self, discharge_hours_bin: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self, discharge_hours_bin_np: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Decode the input array into ac_charge, dc_charge, and discharge arrays."""
-        discharge_hours_bin_np = np.array(discharge_hours_bin)
-        len_ac = len(self._config.eos.available_charging_rates_in_percentage)
 
         # Categorization:
         # Idle:       0 .. len_ac-1
@@ -139,22 +146,23 @@ class optimization_problem:
 
         # Idle has no charge, Discharge has binary 1, AC Charge has corresponding values
         # Idle states
-        idle_mask = (discharge_hours_bin_np >= 0) & (discharge_hours_bin_np < len_ac)
+        # idle_mask = (discharge_hours_bin_np >= 0) & (discharge_hours_bin_np < self.len_ac)
 
         # Discharge states
-        discharge_mask = (discharge_hours_bin_np >= len_ac) & (discharge_hours_bin_np < 2 * len_ac)
+        discharge_mask = (discharge_hours_bin_np >= self.len_ac) & (discharge_hours_bin_np < 2 * self.len_ac)
 
         # AC states
-        ac_mask = (discharge_hours_bin_np >= 2 * len_ac) & (discharge_hours_bin_np < 3 * len_ac)
-        ac_indices = (discharge_hours_bin_np[ac_mask] - 2 * len_ac).astype(int)
+        ac_mask = (discharge_hours_bin_np >= 2 * self.len_ac) & (discharge_hours_bin_np < 3 * self.len_ac)
+        ac_indices = (discharge_hours_bin_np[ac_mask] - 2 * self.len_ac).astype(int)
 
         # DC states (if enabled)
         if self.optimize_dc_charge:
-            dc_not_allowed_state = 3 * len_ac
-            dc_allowed_state = 3 * len_ac + 1
+            # dc_not_allowed_state = 3 * self.len_ac
+            dc_allowed_state = 3 * self.len_ac + 1
             dc_charge = np.where(discharge_hours_bin_np == dc_allowed_state, 1, 0)
+
         else:
-            dc_charge = np.ones_like(discharge_hours_bin_np, dtype=float)
+            dc_charge = np.ones_like(discharge_hours_bin_np, dtype=int)
 
         # Generate the result arrays
         discharge = np.zeros_like(discharge_hours_bin_np, dtype=int)
@@ -165,35 +173,28 @@ class optimization_problem:
             self._config.eos.available_charging_rates_in_percentage[i] for i in ac_indices
         ]
 
-        # Idle is just 0, already default.
-
         return ac_charge, dc_charge, discharge
 
-    def mutate(self, individual: list[int]) -> tuple[list[int]]:
+    def mutate(self, individual: array.array[int]) -> tuple[array.array[int]]:
         """Custom mutation function for the individual."""
-        # Calculate the number of states
-        len_ac = len(self._config.eos.available_charging_rates_in_percentage)
-        if self.optimize_dc_charge:
-            total_states = 3 * len_ac + 2
-        else:
-            total_states = 3 * len_ac
+        # print(individual)
 
         # 1. Mutating the charge_discharge part
         charge_discharge_part = individual[: self.prediction_hours]
         (charge_discharge_mutated,) = self.toolbox.mutate_charge_discharge(charge_discharge_part)
 
         # Instead of a fixed clamping to 0..8 or 0..6 dynamically:
-        charge_discharge_mutated = np.clip(charge_discharge_mutated, 0, total_states - 1)
-        individual[: self.prediction_hours] = charge_discharge_mutated
+        # charge_discharge_mutated = np.clip(charge_discharge_mutated, 0, self.total_states - 1)
+        individual[: self.prediction_hours] = array.array('i', charge_discharge_mutated)
 
         # 2. Mutating the EV charge part, if active
         if self.optimize_ev:
             ev_charge_part = individual[self.prediction_hours : self.prediction_hours * 2]
             (ev_charge_part_mutated,) = self.toolbox.mutate_ev_charge_index(ev_charge_part)
-            ev_charge_part_mutated[self.prediction_hours - self.fixed_eauto_hours :] = [
+            ev_charge_part_mutated[self.prediction_hours - self.fixed_eauto_hours :] = array.array('i', [
                 0
-            ] * self.fixed_eauto_hours
-            individual[self.prediction_hours : self.prediction_hours * 2] = ev_charge_part_mutated
+            ] * self.fixed_eauto_hours)
+            individual[self.prediction_hours : self.prediction_hours * 2] = array.array('i', ev_charge_part_mutated)
 
         # 3. Mutating the appliance start time, if applicable
         if self.opti_param["home_appliance"] > 0:
@@ -204,23 +205,19 @@ class optimization_problem:
         return (individual,)
 
     # Method to create an individual based on the conditions
-    def create_individual(self) -> list[int]:
+    def create_individual(self) -> array.array[int]:
         # Start with discharge states for the individual
-        individual_components = [
-            self.toolbox.attr_discharge_state() for _ in range(self.prediction_hours)
-        ]
+        individual_components = [self.toolbox.attr_discharge_state() for _ in range(self.prediction_hours)]
 
         # Add EV charge index values if optimize_ev is True
         if self.optimize_ev:
-            individual_components += [
-                self.toolbox.attr_ev_charge_index() for _ in range(self.prediction_hours)
-            ]
+            individual_components += [self.toolbox.attr_ev_charge_index() for _ in range(self.prediction_hours)]
 
         # Add the start time of the household appliance if it's being optimized
         if self.opti_param["home_appliance"] > 0:
             individual_components += [self.toolbox.attr_int()]
 
-        return creator.Individual(individual_components)
+        return creator.Individual(array.array("i", individual_components))
 
     def merge_individual(
         self,
@@ -258,7 +255,7 @@ class optimization_problem:
         return individual
 
     def split_individual(
-        self, individual: list[int]
+        self, individual: array.array[int]
     ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[int]]:
         """Split the individual solution into its components.
 
@@ -296,10 +293,9 @@ class optimization_problem:
                 del creator.__dict__[attr]
 
         creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-        creator.create("Individual", list, fitness=creator.FitnessMin)
+        creator.create("Individual", array.array, typecode="i", fitness=creator.FitnessMin)
 
         self.toolbox = base.Toolbox()
-        len_ac = len(self._config.eos.available_charging_rates_in_percentage)
 
         # Total number of states without DC:
         # Idle: len_ac states
@@ -307,14 +303,8 @@ class optimization_problem:
         # AC-Charge: len_ac states
         # Total without DC: 3 * len_ac
 
-        # With DC: + 2 states
-        if self.optimize_dc_charge:
-            total_states = 3 * len_ac + 2
-        else:
-            total_states = 3 * len_ac
-
         # State space: 0 .. (total_states - 1)
-        self.toolbox.register("attr_discharge_state", random.randint, 0, total_states - 1)
+        self.toolbox.register("attr_discharge_state", random.randint, 0, self.total_states - 1)
 
         # EV attributes
         if self.optimize_ev:
@@ -322,7 +312,7 @@ class optimization_problem:
                 "attr_ev_charge_index",
                 random.randint,
                 0,
-                len_ac - 1,
+                self.len_ac - 1,
             )
 
         # Household appliance start time
@@ -334,7 +324,7 @@ class optimization_problem:
 
         # Mutation operator for charge/discharge states
         self.toolbox.register(
-            "mutate_charge_discharge", tools.mutUniformInt, low=0, up=total_states - 1, indpb=0.2
+            "mutate_charge_discharge", tools.mutUniformInt, low=0, up=self.total_states - 1, indpb=0.2
         )
 
         # Mutation operator for EV states
@@ -342,7 +332,7 @@ class optimization_problem:
             "mutate_ev_charge_index",
             tools.mutUniformInt,
             low=0,
-            up=len_ac - 1,
+            up=self.len_ac - 1,
             indpb=0.2,
         )
 
@@ -354,7 +344,7 @@ class optimization_problem:
         self.toolbox.register("select", tools.selTournament, tournsize=3)
 
     def evaluate_inner(
-        self, individual: list[int], ems: EnergieManagementSystem, start_hour: int
+        self, individual: array.array[int], ems: EnergieManagementSystem, start_hour: int
     ) -> dict[str, Any]:
         """Simulates the energy management system (EMS) using the provided individual solution.
 
@@ -388,16 +378,18 @@ class optimization_problem:
 
     def evaluate(
         self,
-        individual: list[int],
+        individual: array.array[int],
         ems: EnergieManagementSystem,
         parameters: OptimizationParameters,
         start_hour: int,
         worst_case: bool,
     ) -> Tuple[float]:
         """Evaluate the fitness of an individual solution based on the simulation results."""
+
         try:
             o = self.evaluate_inner(individual, ems, start_hour)
         except Exception as e:
+            # print(e)
             return (100000.0,)  # Return a high penalty in case of an exception
 
         gesamtbilanz = o["Gesamtbilanz_Euro"] * (-1.0 if worst_case else 1.0)
@@ -418,7 +410,7 @@ class optimization_problem:
 
             # Mask
             invalid_charge_mask = (eauto_soc_per_hour_tail == 100) & (
-                eautocharge_hours_index_tail > 0
+                    eautocharge_hours_index_tail > 0
             )
 
             if np.any(invalid_charge_mask):
@@ -432,34 +424,30 @@ class optimization_problem:
                     discharge_hours_bin, eautocharge_hours_index, washingstart_int
                 )
 
-                individual[:] = adjusted_individual
+                individual[:] = array.array('i', adjusted_individual)
 
-        # New check: Activate discharge when battery SoC is 0
-        battery_soc_per_hour = np.array(
-            o.get("akku_soc_pro_stunde", [])
-        )  # Example key for battery SoC
+            # New check: Activate discharge when battery SoC is 0
+            battery_soc_per_hour = np.array(o.get("akku_soc_pro_stunde", []))  # Example key for battery SoC
 
-        if battery_soc_per_hour is not None:
-            if battery_soc_per_hour is None or discharge_hours_bin is None:
-                raise ValueError("battery_soc_per_hour or discharge_hours_bin is None")
-            min_length = min(battery_soc_per_hour.size, discharge_hours_bin.size)
-            battery_soc_per_hour_tail = battery_soc_per_hour[-min_length:]
-            discharge_hours_bin_tail = discharge_hours_bin[-min_length:]
-            len_ac = len(self._config.eos.available_charging_rates_in_percentage)
+            if battery_soc_per_hour is not None:
+                if battery_soc_per_hour is None or discharge_hours_bin is None:
+                    raise ValueError("battery_soc_per_hour or discharge_hours_bin is None")
+                min_length = min(battery_soc_per_hour.size, discharge_hours_bin.size)
+                battery_soc_per_hour_tail = battery_soc_per_hour[-min_length:]
+                discharge_hours_bin_tail = discharge_hours_bin[-min_length:]
 
-            # Find hours where battery SoC is 0
-            zero_soc_mask = battery_soc_per_hour_tail == 0
-            discharge_hours_bin_tail[zero_soc_mask] = (
-                len_ac + 2
-            )  # Activate discharge for these hours
+                # Find hours where battery SoC is 0
+                zero_soc_mask = battery_soc_per_hour_tail == 0
+                discharge_hours_bin_tail[zero_soc_mask] = (self.len_ac + 2)  # Activate discharge for these hours
 
-            # Merge the updated discharge_hours_bin back into the individual
-            adjusted_individual = self.merge_individual(
-                discharge_hours_bin, eautocharge_hours_index, washingstart_int
-            )
-            individual[:] = adjusted_individual
+                # Merge the updated discharge_hours_bin back into the individual
+                adjusted_individual = self.merge_individual(
+                    discharge_hours_bin, eautocharge_hours_index, washingstart_int
+                )
+                individual[:] = array.array('i', adjusted_individual)
 
-        # More metrics
+
+        # Berechnung weiterer Metriken
         individual.extra_data = (  # type: ignore[attr-defined]
             o["Gesamtbilanz_Euro"],
             o["Gesamt_Verluste"],
@@ -501,6 +489,10 @@ class optimization_problem:
 
         # Insert the start solution into the population if provided
         if start_solution is not None:
+            #if self.optimize_ev and len(start_solution) < 2 * self.prediction_hours:
+            #    start_solution += [0] * self.prediction_hours
+            #    start_solution += [0]
+
             for _ in range(10):
                 population.insert(0, creator.Individual(start_solution))
 
