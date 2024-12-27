@@ -44,7 +44,7 @@ class OptimizationParameters(BaseModel):
     )
     generations: int = Field(
         default=400,
-        ge=10,
+        ge=3,
         le=1000,
         description="A integer between 10 and 1000 representing the size of generations.",
     )
