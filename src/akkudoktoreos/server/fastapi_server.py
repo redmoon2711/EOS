@@ -17,6 +17,9 @@ import pandas as pd
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, RedirectResponse
 
+# Weather forecast
+from simple_dwd_weatherforecast import dwdforecast
+
 from akkudoktoreos.config import (
     SetupIncomplete,
     get_start_enddate,
@@ -56,6 +59,11 @@ class PdfResponse(FileResponse):
     media_type = "application/pdf"
 
 
+class WeatherResponse(BaseModel):
+    dt: list[datetime]
+    temperature: list[float]
+
+
 @app.get("/strompreis")
 def fastapi_strompreis() -> list[float]:
     # Get the current date and the end date based on prediction hours
@@ -84,6 +92,34 @@ class GesamtlastRequest(BaseModel):
     year_energy: float
     measured_data: List[Dict[str, Any]]
     hours: int
+
+
+@app.get("/weather_forecast")
+def fastapi_weather_forecast(station: str) -> WeatherResponse:
+    """Get the current temperature from dwd forecast based on prediction hours."""
+    today = datetime.now().date()
+    midnight = datetime.combine(today, datetime.min.time())
+
+    # dwd_weather instanz with parameter location
+    dwd_weather = dwdforecast.Weather(station)
+
+    # hour now
+    hour_now = datetime.now().hour
+
+    dt_list = []
+    temperature_forecast = []
+
+    for i in range(hour_now, config.eos.prediction_hours):
+        delta = timedelta(hours=i)
+        dt = midnight + delta
+        dt_list.append(dt)
+
+        temp = dwd_weather.get_forecast_data(dwdforecast.WeatherDataType.TEMPERATURE, dt)
+        if temp:
+            temp -= 273.15
+            temperature_forecast.append(round(temp, 2))
+
+    return WeatherResponse(dt=dt_list, temperature=temperature_forecast)
 
 
 @app.post("/gesamtlast")
