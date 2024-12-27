@@ -176,7 +176,7 @@ class optimization_problem:
 
         return ac_charge, dc_charge, discharge
 
-    def mutate(self, individual: array.array[int]) -> tuple[array.array[int]]:
+    def mutate(self, individual: list[int]) -> tuple[list[int]]:
         """Custom mutation function for the individual."""
         # print(individual)
 
@@ -208,7 +208,7 @@ class optimization_problem:
         return (individual,)
 
     # Method to create an individual based on the conditions
-    def create_individual(self) -> array.array[int]:
+    def create_individual(self) -> list[int]:
         # Start with discharge states for the individual
         individual_components = [
             self.toolbox.attr_discharge_state() for _ in range(self.prediction_hours)
@@ -262,7 +262,7 @@ class optimization_problem:
         return individual
 
     def split_individual(
-        self, individual: array.array[int]
+        self, individual: list[int]
     ) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[int]]:
         """Split the individual solution into its components.
 
@@ -355,7 +355,7 @@ class optimization_problem:
         self.toolbox.register("select", tools.selTournament, tournsize=3)
 
     def evaluate_inner(
-        self, individual: array.array[int], ems: EnergieManagementSystem, start_hour: int
+        self, individual: list[int], ems: EnergieManagementSystem, start_hour: int
     ) -> dict[str, Any]:
         """Simulates the energy management system (EMS) using the provided individual solution.
 
@@ -389,7 +389,7 @@ class optimization_problem:
 
     def evaluate(
         self,
-        individual: array.array[int],
+        individual: list[int],
         ems: EnergieManagementSystem,
         parameters: OptimizationParameters,
         start_hour: int,

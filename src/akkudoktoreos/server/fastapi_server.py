@@ -219,7 +219,7 @@ def get_pdf() -> PdfResponse:
     output_path = config.working_dir / config.directories.output
     if not output_path.is_dir():
         raise SetupIncomplete(f"Output path does not exist: {output_path}.")
-    file_path = output_path / "visualization_results.pdf"
+    file_path = output_path / "visualization_results_new.pdf"
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="No visualization result available.")
     return PdfResponse(file_path)
