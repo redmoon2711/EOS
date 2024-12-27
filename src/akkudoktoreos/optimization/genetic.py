@@ -42,6 +42,12 @@ class OptimizationParameters(BaseModel):
     start_solution: Optional[list[int]] = Field(
         default=None, description="Can be `null` or contain a previous solution (if available)."
     )
+    generations: int = Field(
+        default=400,
+        ge=10,
+        le=1000,
+        description="A integer between 10 and 1000 representing the size of generations.",
+    )
 
     @model_validator(mode="after")
     def validate_list_length(self) -> Self:
@@ -538,7 +544,6 @@ class optimization_problem:
         parameters: OptimizationParameters,
         start_hour: int,
         worst_case: bool = False,
-        ngen: int = 400,
     ) -> OptimizeResponse:
         """Perform EMS (Energy Management System) optimization and visualize results."""
         einspeiseverguetung_euro_pro_wh = np.full(
@@ -603,7 +608,9 @@ class optimization_problem:
 
         if self.verbose == True:
             start_time = time.time()
-        start_solution, extra_data = self.optimize(parameters.start_solution, ngen=ngen)
+        start_solution, extra_data = self.optimize(
+            parameters.start_solution, ngen=parameters.generations
+        )
 
         if self.verbose == True:
             elapsed_time = time.time() - start_time

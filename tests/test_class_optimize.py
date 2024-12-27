@@ -74,10 +74,10 @@ def test_optimize(
             parameters, results, filename=visualize_filename, **kwargs
         ),
     ) as prepare_visualize_patch:
+        # set ngen to input_data
+        input_data.generations = ngen
         # Call the optimization function
-        ergebnis = opt_class.optimierung_ems(
-            parameters=input_data, start_hour=start_hour, ngen=ngen
-        )
+        ergebnis = opt_class.optimierung_ems(parameters=input_data, start_hour=start_hour)
         # Write test output to file, so we can take it as new data on intended change
         with open(DIR_TESTDATA / f"new_{fn_out}", "w") as f_out:
             f_out.write(ergebnis.model_dump_json(indent=4, exclude_unset=True))
