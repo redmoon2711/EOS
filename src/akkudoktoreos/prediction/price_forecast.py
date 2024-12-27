@@ -133,8 +133,6 @@ class HourlyElectricityPriceForecast:
 
         return np.round(np.array(date_prices) / 100000.0, 10)
 
-        return np.array(date_prices) / (1000.0 * 1000.0) + self.charges
-
     def get_average_price_last_7_days(self, end_date_str: Optional[str] = None) -> np.ndarray:
         """Calculate the hourly average electricity price for the last 7 days.
 
