@@ -24,12 +24,30 @@ def repeat_to_shape(array: np.ndarray, target_shape: Sequence[int]) -> np.ndarra
     return expanded_array
 
 
+def calc_price(euro_pro_mwh) -> float:
+    """Calculate the final electricity price per kilowatt-hour (kWh).
+
+    This calculation is based on the following cost components:
+    - Provider: Tibber
+    - Procurement: €1.81 per kWh
+    - Grid usage: €9.30 per kWh
+    - Taxes, levies, and surcharges: €5.214 per kWh
+    - Value-added tax (VAT): 19% (multiplied by 1.19)
+
+    Args:
+        euro_pro_mwh (float): The base electricity price in € per megawatt-hour (MWh).
+
+    Returns:
+        float: The final electricity price in € per kilowatt-hour (kWh).
+    """
+    return (euro_pro_mwh / 10 + 1.81 + 9.3 + 5.214) * 1.19
+
+
 class HourlyElectricityPriceForecast:
     def __init__(
         self,
         source: str | Path,
         config: AppConfig,
-        charges: float = 0.00021,
         use_cache: bool = True,
     ):  # 228
         self.cache_dir = config.working_dir / config.directories.cache
@@ -40,7 +58,6 @@ class HourlyElectricityPriceForecast:
         self.seven_day_mean = np.array([])
         self.cache_time_file = self.cache_dir / "cache_timestamp.txt"
         self.prices = self.load_data(source)
-        self.charges = charges
         self.prediction_hours = config.eos.prediction_hours
         self.seven_day_mean = self.get_average_price_last_7_days()
 
@@ -98,7 +115,7 @@ class HourlyElectricityPriceForecast:
 
         # Extract the price from 00:00 of the previous day
         previous_day_prices = [
-            entry["marketprice"]  # + self.charges
+            calc_price(entry["marketprice"])
             for entry in self.prices
             if previous_day_str in entry["end"]
         ]
@@ -106,7 +123,7 @@ class HourlyElectricityPriceForecast:
 
         # Extract all prices for the specified date
         date_prices = [
-            entry["marketprice"]  # + self.charges
+            calc_price(entry["marketprice"])
             for entry in self.prices
             if date_str in entry["end"]
         ]
@@ -115,7 +132,7 @@ class HourlyElectricityPriceForecast:
         if len(date_prices) == 23:
             date_prices.insert(0, last_price_of_previous_day)
 
-        return np.array(date_prices) / (1000.0 * 1000.0) + self.charges
+        return np.round(np.array(date_prices) / 100000.0, 10)
 
         return np.array(date_prices) / (1000.0 * 1000.0) + self.charges
 
