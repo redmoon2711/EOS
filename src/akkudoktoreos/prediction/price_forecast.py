@@ -24,7 +24,7 @@ def repeat_to_shape(array: np.ndarray, target_shape: Sequence[int]) -> np.ndarra
     return expanded_array
 
 
-def calc_price(euro_pro_mwh) -> float:
+def calc_price(euro_pro_mwh: float) -> float:
     """Calculate the final electricity price per kilowatt-hour (kWh).
 
     This calculation is based on the following cost components:
@@ -48,6 +48,7 @@ class HourlyElectricityPriceForecast:
         self,
         source: str | Path,
         config: AppConfig,
+        charges: float = 0.00021,
         use_cache: bool = True,
     ):  # 228
         self.cache_dir = config.working_dir / config.directories.cache
@@ -123,9 +124,7 @@ class HourlyElectricityPriceForecast:
 
         # Extract all prices for the specified date
         date_prices = [
-            calc_price(entry["marketprice"])
-            for entry in self.prices
-            if date_str in entry["end"]
+            calc_price(entry["marketprice"]) for entry in self.prices if date_str in entry["end"]
         ]
 
         # Add the last price of the previous day at the start of the list

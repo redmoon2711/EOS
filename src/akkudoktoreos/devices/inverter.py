@@ -25,8 +25,7 @@ class Wechselrichter:
         self.scr_lookup: dict = {}
 
     def calculate_scr(self, erzeugung: float, verbrauch: float) -> float:
-        """ Check if the consumption and production is in the lookup table. If not, calculate and store the value."""
-
+        """Check if the consumption and production is in the lookup table. If not, calculate and store the value."""
         if verbrauch not in self.scr_lookup:
             self.scr_lookup[verbrauch] = {}
 
