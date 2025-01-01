@@ -17,7 +17,7 @@ Example:
     # Initialize PVForecast class with an URL
     forecast = PVForecast(
         prediction_hours=24,
-        url="https://api.akkudoktor.net/forecast?lat=50.8588&lon=7.3747..."
+        url="https://api.akkudoktor.net/forecast?lat=52.52&lon=13.405..."
     )
 
     # Update the AC power measurement for a specific date and time
@@ -80,9 +80,9 @@ class AkkudoktorForecastValue(BaseModel):
     power: float
     sunTilt: float
     sunAzimuth: float
-    temperature: float
-    relativehumidity_2m: float
-    windspeed_10m: float
+    temperature: Optional[float]
+    relativehumidity_2m: Optional[float]
+    windspeed_10m: Optional[float]
 
 
 class AkkudoktorForecast(BaseModel):
@@ -109,8 +109,8 @@ def validate_pv_forecast_data(data: dict[str, Any]) -> Optional[str]:
 
 
 class ForecastResponse(BaseModel):
-    temperature: list[float]
-    pvpower: list[float]
+    temperature: list[Optional[float]]
+    pvpower: list[Optional[float]]
 
 
 class ForecastData:
@@ -336,7 +336,7 @@ class PVForecast:
 
         Example:
             forecast = PVForecast(
-                url="https://api.akkudoktor.net/forecast?lat=50.8588&lon=7.3747&"
+                url="https://api.akkudoktor.net/forecast?lat=52.52&lon=13.405&"
                 "power=5000&azimuth=-10&tilt=7&powerInvertor=10000&horizont=20,27,22,20&"
                 "power=4800&azimuth=-90&tilt=7&powerInvertor=10000&horizont=30,30,30,50&"
                 "power=1400&azimuth=-40&tilt=60&powerInvertor=2000&horizont=60,30,0,30&"
@@ -471,7 +471,7 @@ class PVForecast:
         """Loads forecast data from a URL.
 
         Example:
-            https://api.akkudoktor.net/forecast?lat=50.8588&lon=7.3747&power=5000&azimuth=-10&tilt=7&powerInvertor=10000&horizont=20,27,22,20&power=4800&azimuth=-90&tilt=7&powerInvertor=10000&horizont=30,30,30,50&power=1400&azimuth=-40&tilt=60&powerInvertor=2000&horizont=60,30,0,30&power=1600&azimuth=5&tilt=45&powerInvertor=1400&horizont=45,25,30,60&past_days=5&cellCoEff=-0.36&inverterEfficiency=0.8&albedo=0.25&timezone=Europe%2FBerlin&hourly=relativehumidity_2m%2Cwindspeed_10m
+            https://api.akkudoktor.net/forecast?lat=52.52&lon=13.405&power=5000&azimuth=-10&tilt=7&powerInvertor=10000&horizont=20,27,22,20&power=4800&azimuth=-90&tilt=7&powerInvertor=10000&horizont=30,30,30,50&power=1400&azimuth=-40&tilt=60&powerInvertor=2000&horizont=60,30,0,30&power=1600&azimuth=5&tilt=45&powerInvertor=1400&horizont=45,25,30,60&past_days=5&cellCoEff=-0.36&inverterEfficiency=0.8&albedo=0.25&timezone=Europe%2FBerlin&hourly=relativehumidity_2m%2Cwindspeed_10m
 
         Args:
             url (str): URL of the API providing forecast data.
@@ -670,7 +670,7 @@ if __name__ == "__main__":
     """
     forecast = PVForecast(
         prediction_hours=24,
-        url="https://api.akkudoktor.net/forecast?lat=50.8588&lon=7.3747&"
+        url="https://api.akkudoktor.net/forecast?lat=52.52&lon=13.405&"
         "power=5000&azimuth=-10&tilt=7&powerInvertor=10000&horizont=20,27,22,20&"
         "power=4800&azimuth=-90&tilt=7&powerInvertor=10000&horizont=30,30,30,50&"
         "power=1400&azimuth=-40&tilt=60&powerInvertor=2000&horizont=60,30,0,30&"
