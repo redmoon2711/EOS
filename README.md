@@ -2,16 +2,15 @@
 
 This project provides a comprehensive solution for simulating and optimizing an energy system based on renewable energy sources. With a focus on photovoltaic (PV) systems, battery storage (batteries), load management (consumer requirements), heat pumps, electric vehicles, and consideration of electricity price data, this system enables forecasting and optimization of energy flow and costs over a specified period.
 
+Documentation can be found at [Akkudoktor-EOS](https://akkudoktor-eos.readthedocs.io/en/latest/).
+
 ## Getting Involved
 
-> [!NOTE]
-> Development is currently done in the feature-Branch `feature/config-overhaul`. If you want to provide PRs, please use that branch as base.
->
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Installation
 
-The project requires Python 3.10 or newer. Currently there are no official packages or images published.
+The project requires Python 3.10 or newer. Official docker images can be found at [akkudoktor/eos](https://hub.docker.com/r/akkudoktor/eos).
 
 Following sections describe how to locally start the EOS server on `http://localhost:8503`.
 
@@ -28,29 +27,29 @@ python -m venv .venv
 
 Windows:
 
-```bash
+```cmd
 python -m venv .venv
  .venv\Scripts\pip install -r requirements.txt
 ```
 
-Finally, start EOS fastapi server:
+Finally, start the EOS server:
 
 Linux:
 
 ```bash
-.venv/bin/fastapi run --port 8503 src/akkudoktoreos/server/fastapi_server.py
+.venv/bin/python src/akkudoktoreos/server/eos.py
 ```
 
 Windows:
 
-```
- .venv\Scripts\fastapi run --port 8503 src/akkudoktoreos/server/fastapi_server.py
+```cmd
+.venv\Scripts\python src/akkudoktoreos/server/eos.py
 ```
 
 ### Docker
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
 ## Configuration
@@ -76,7 +75,7 @@ If the configuration keys in the `EOS.config.json` file are missing or different
 
 This project uses various classes to simulate and optimize the components of an energy system. Each class represents a specific aspect of the system, as described below:
 
-- `PVAkku`: Simulates a battery storage system, including capacity, state of charge, and now charge and discharge losses.
+- `Battery`: Simulates a battery storage system, including capacity, state of charge, and now charge and discharge losses.
 
 - `PVForecast`: Provides forecast data for photovoltaic generation, based on weather data and historical generation data.
 
@@ -96,7 +95,7 @@ Each class is designed to be easily customized and extended to integrate additio
 
 ## Server API
 
-See the Swagger API documentation for detailed information: [EOS OpenAPI Spec](https://petstore3.swagger.io/?url=https://raw.githubusercontent.com/Akkudoktor-EOS/EOS/refs/heads/main/docs/akkudoktoreos/openapi.json)
+See the Swagger API documentation for detailed information: [EOS OpenAPI Spec](https://petstore3.swagger.io/?url=https://raw.githubusercontent.com/Akkudoktor-EOS/EOS/refs/heads/main/openapi.json)
 
 ## Further resources
 

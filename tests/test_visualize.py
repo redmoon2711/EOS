@@ -1,39 +1,28 @@
-import os
-import subprocess
 from pathlib import Path
 
 from matplotlib.testing.compare import compare_images
 
-from akkudoktoreos.config import get_working_dir, load_config
+from akkudoktoreos.utils.visualize import generate_example_report
 
 filename = "example_report.pdf"
 
-working_dir = get_working_dir()
-config = load_config(working_dir)
-output_dir = config.working_dir / config.directories.output
-
-# If self.filename is already a valid path, use it; otherwise, combine it with output_dir
-if os.path.isabs(filename):
-    output_file = filename
-else:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = os.path.join(output_dir, filename)
 
 DIR_TESTDATA = Path(__file__).parent / "testdata"
 reference_file = DIR_TESTDATA / "test_example_report.pdf"
 
 
-def test_generate_pdf_main():
-    # Delete the old generated file if it exists
-    if os.path.isfile(output_file):
-        os.remove(output_file)
+def test_generate_pdf_example(config_eos):
+    """Test generation of example visualization report."""
+    output_dir = config_eos.data_output_path
+    assert output_dir is not None
+    output_file = output_dir / filename
+    assert not output_file.exists()
 
-    # Execute the __main__ block of visualize.py by running it as a script
-    script_path = Path(__file__).parent.parent / "src" / "akkudoktoreos" / "utils" / "visualize.py"
-    subprocess.run(["python", str(script_path)], check=True)
+    # Generate PDF
+    generate_example_report()
 
     # Check if the file exists
-    assert os.path.isfile(output_file)
+    assert output_file.exists()
 
     # Compare the generated file with the reference file
     comparison = compare_images(str(reference_file), str(output_file), tol=0)

@@ -14,7 +14,13 @@ welcome.md
 akkudoktoreos/about.md
 develop/getting_started.md
 develop/CONTRIBUTING.md
-akkudoktoreos/serverapi.rst
+akkudoktoreos/architecture.md
+akkudoktoreos/configuration.md
+akkudoktoreos/optimization.md
+akkudoktoreos/prediction.md
+akkudoktoreos/measurement.md
+akkudoktoreos/integration.md
+akkudoktoreos/serverapi.md
 akkudoktoreos/api.rst
 ```
 

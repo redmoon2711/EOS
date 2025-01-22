@@ -17,8 +17,10 @@ help:
 	@echo "  docker-build - Rebuild docker image"
 	@echo "  docs         - Generate HTML documentation (in build/docs/html/)."
 	@echo "  read-docs    - Read HTML documentation in your browser."
-	@echo "  run          - Run FastAPI production server in the virtual environment."
-	@echo "  run-dev      - Run FastAPI development server in the virtual environment (automatically reloads)."
+	@echo "  gen-docs     - Generate openapi.json and docs/_generated/*.""
+	@echo "  clean-docs   - Remove generated documentation.""
+	@echo "  run          - Run EOS production server in the virtual environment."
+	@echo "  run-dev      - Run EOS development server in the virtual environment (automatically reloads)."
 	@echo "  dist         - Create distribution (in dist/)."
 	@echo "  clean        - Remove generated documentation, distribution and virtual environment."
 
@@ -50,38 +52,44 @@ dist: pip
 	.venv/bin/python -m build --wheel
 	@echo "Distribution created (see dist/)."
 
-# Target to generate HTML documentation
+# Target to generate documentation
+gen-docs: pip-dev
+	.venv/bin/pip install -e .
+	.venv/bin/python ./scripts/generate_config_md.py --output-file docs/_generated/config.md
+	.venv/bin/python ./scripts/generate_openapi_md.py --output-file docs/_generated/openapi.md
+	.venv/bin/python ./scripts/generate_openapi.py --output-file openapi.json
+	@echo "Documentation generated to openapi.json and docs/_generated."
+
+# Target to build HTML documentation
 docs: pip-dev
-	mkdir -p docs/develop
-	cp README.md docs/develop/getting_started.md
-	# remove top level header and coresponding description
-	sed -i '/^##[^#]/,$$!d' docs/develop/getting_started.md
-	sed -i "1i\# Getting Started\n" docs/develop/getting_started.md
-	cp CONTRIBUTING.md docs/develop
-	sed -i "s/README.md/getting_started.md/g" docs/develop/CONTRIBUTING.md
 	.venv/bin/sphinx-build -M html docs build/docs
-	@echo "Documentation generated to build/docs/html/."
+	@echo "Documentation build to build/docs/html/."
 
 # Target to read the HTML documentation
 read-docs: docs
 	@echo "Read the documentation in your browser"
 	.venv/bin/python -m webbrowser build/docs/html/index.html
 
-# Clean target to remove generated documentation, distribution and virtual environment
-clean:
-	@echo "Cleaning virtual env, distribution and build directories"
-	rm -rf dist build .venv
+# Clean target to remove generated documentation and documentation artefacts
+clean-docs:
 	@echo "Searching and deleting all '_autosum' directories in docs..."
 	@find docs -type d -name '_autosummary' -exec rm -rf {} +;
+	@echo "Cleaning docs build directories"
+	rm -rf build/docs
+
+# Clean target to remove generated documentation, distribution and virtual environment
+clean: clean-docs
+	@echo "Cleaning virtual env, distribution and build directories"
+	rm -rf build .venv
 	@echo "Deletion complete."
 
 run:
-	@echo "Starting FastAPI server, please wait..."
-	.venv/bin/fastapi run --port 8503 src/akkudoktoreos/server/fastapi_server.py
+	@echo "Starting EOS production server, please wait..."
+	.venv/bin/python src/akkudoktoreos/server/eos.py
 
 run-dev:
-	@echo "Starting FastAPI development server, please wait..."
-	.venv/bin/fastapi dev --port 8503 src/akkudoktoreos/server/fastapi_server.py
+	@echo "Starting EOS development server, please wait..."
+	.venv/bin/python src/akkudoktoreos/server/eos.py --host localhost --port 8503 --reload true
 
 # Target to setup tests.
 test-setup: pip-dev

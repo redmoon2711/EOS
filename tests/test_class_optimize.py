@@ -5,13 +5,15 @@ from unittest.mock import patch
 
 import pytest
 
-from akkudoktoreos.config import AppConfig
+from akkudoktoreos.config.config import ConfigEOS
 from akkudoktoreos.optimization.genetic import (
     OptimizationParameters,
     OptimizeResponse,
     optimization_problem,
 )
-from akkudoktoreos.utils.visualize import prepare_visualize
+from akkudoktoreos.utils.visualize import (
+    prepare_visualize,  # Import the new prepare_visualize
+)
 
 DIR_TESTDATA = Path(__file__).parent / "testdata"
 
@@ -42,10 +44,13 @@ def test_optimize(
     fn_in: str,
     fn_out: str,
     ngen: int,
+    config_eos: ConfigEOS,
     is_full_run: bool,
-    tmp_config: AppConfig,
 ):
     """Test optimierung_ems."""
+    # Assure configuration holds the correct values
+    config_eos.merge_settings_from_dict({"prediction_hours": 48, "optimization_hours": 48})
+
     # Load input and output data
     file = DIR_TESTDATA / fn_in
     with file.open("r") as f_in:
@@ -59,12 +64,12 @@ def test_optimize(
     except FileNotFoundError:
         pass
 
-    opt_class = optimization_problem(tmp_config, fixed_seed=42)
+    opt_class = optimization_problem(fixed_seed=42)
     start_hour = 10
 
     # Activate with pytest --full-run
-    # if ngen > 10 and not is_full_run:
-    #    pytest.skip()
+    if ngen > 10 and not is_full_run:
+        pytest.skip()
 
     visualize_filename = str((DIR_TESTDATA / f"new_{fn_out}").with_suffix(".pdf"))
 
@@ -93,3 +98,4 @@ def test_optimize(
 
         # The function creates a visualization result PDF as a side-effect.
         prepare_visualize_patch.assert_called_once()
+        assert Path(visualize_filename).exists()

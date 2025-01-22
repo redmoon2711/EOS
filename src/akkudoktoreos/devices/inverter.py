@@ -1,98 +1,137 @@
-from pydantic import BaseModel, Field
+from typing import Optional
 
-from akkudoktoreos.devices.battery import PVAkku
-from akkudoktoreos.prediction.self_consumption_probability import (
-    self_consumption_probability_interpolator,
-)
+from pydantic import Field
+from scipy.interpolate import RegularGridInterpolator
+
+from akkudoktoreos.core.logging import get_logger
+from akkudoktoreos.core.pydantic import ParametersBaseModel
+from akkudoktoreos.devices.battery import Battery
+from akkudoktoreos.devices.devicesabc import DeviceBase
+
+logger = get_logger(__name__)
 
 
-class WechselrichterParameters(BaseModel):
-    max_leistung_wh: float = Field(default=10000, gt=0)
+class InverterParameters(ParametersBaseModel):
+    max_power_wh: float = Field(gt=0)
 
 
-class Wechselrichter:
+class Inverter(DeviceBase):
     def __init__(
         self,
-        parameters: WechselrichterParameters,
-        akku: PVAkku,
-        self_consumption_predictor: self_consumption_probability_interpolator,
+        self_consumption_predictor: RegularGridInterpolator,
+        parameters: Optional[InverterParameters] = None,
+        battery: Optional[Battery] = None,
+        provider_id: Optional[str] = None,
     ):
-        self.max_leistung_wh = (
-            parameters.max_leistung_wh  # Maximum power that the inverter can handle
-        )
-        self.akku = akku  # Connection to a battery object
+        # Configuration initialisation
+        self.provider_id = provider_id
+        self.prefix = "<invalid>"
+        if self.provider_id == "GenericInverter":
+            self.prefix = "inverter"
+        # Parameter initialisiation
+        self.parameters = parameters
+        if battery is None:
+            # For the moment raise exception
+            # TODO: Make battery configurable by config
+            error_msg = "Battery for PV inverter is mandatory."
+            logger.error(error_msg)
+            raise NotImplementedError(error_msg)
+        self.battery = battery  # Connection to a battery object
         self.self_consumption_predictor = self_consumption_predictor
 
-    def energie_verarbeiten(
-        self, erzeugung: float, verbrauch: float, hour: int
+        self.initialised = False
+        # Run setup if parameters are given, otherwise setup() has to be called later when the config is initialised.
+        if self.parameters is not None:
+            self.setup()
+
+    def setup(self) -> None:
+        if self.initialised:
+            return
+        if self.provider_id is not None:
+            # Setup by configuration
+            self.max_power_wh = getattr(self.config, f"{self.prefix}_power_max")
+        elif self.parameters is not None:
+            # Setup by parameters
+            self.max_power_wh = (
+                self.parameters.max_power_wh  # Maximum power that the inverter can handle
+            )
+        else:
+            error_msg = "Parameters and provider ID missing. Can't instantiate."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    def process_energy(
+        self, generation: float, consumption: float, hour: int
     ) -> tuple[float, float, float, float]:
-        verluste = 0.0  # Losses during processing
-        netzeinspeisung = 0.0  # Grid feed-in
-        netzbezug = 0.0  # Grid draw
-        eigenverbrauch = 0.0  # Self-consumption
-        aus_akku = 0.0
-        if erzeugung >= verbrauch:
-            if verbrauch > self.max_leistung_wh:
+        losses = 0.0
+        grid_export = 0.0
+        grid_import = 0.0
+        self_consumption = 0.0
+
+        if generation >= consumption:
+            if consumption > self.max_power_wh:
                 # If consumption exceeds maximum inverter power
-                verluste += erzeugung - self.max_leistung_wh
-                restleistung_nach_verbrauch = self.max_leistung_wh - verbrauch
-                netzbezug = -restleistung_nach_verbrauch  # Negative indicates feeding into the grid
-                eigenverbrauch = self.max_leistung_wh
+                losses += generation - self.max_power_wh
+                remaining_power = self.max_power_wh - consumption
+                grid_import = -remaining_power  # Negative indicates feeding into the grid
+                self_consumption = self.max_power_wh
             else:
                 scr = self.self_consumption_predictor.calculate_self_consumption(
-                    verbrauch, erzeugung
+                    consumption, generation
                 )
 
                 # Remaining power after consumption
-                restleistung_nach_verbrauch = (erzeugung - verbrauch) * scr  # EVQ
+                remaining_power = (generation - consumption) * scr  # EVQ
                 # Remaining load Self Consumption not perfect
-                restlast_evq = (erzeugung - verbrauch) * (1.0 - scr)
+                remaining_load_evq = (generation - consumption) * (1.0 - scr)
 
-                if restlast_evq > 0:
+                if remaining_load_evq > 0:
                     # Akku muss den Restverbrauch decken
-                    aus_akku, akku_entladeverluste = self.akku.energie_abgeben(restlast_evq, hour)
-                    restlast_evq -= aus_akku  # Restverbrauch nach Akkuentladung
-                    verluste += akku_entladeverluste
+                    from_battery, discharge_losses = self.battery.discharge_energy(
+                        remaining_load_evq, hour
+                    )
+                    remaining_load_evq -= from_battery  # Restverbrauch nach Akkuentladung
+                    losses += discharge_losses
 
                     # Wenn der Akku den Restverbrauch nicht vollständig decken kann, wird der Rest ins Netz gezogen
-                    if restlast_evq > 0:
-                        netzbezug += restlast_evq
-                        restlast_evq = 0
+                    if remaining_load_evq > 0:
+                        grid_import += remaining_load_evq
+                        remaining_load_evq = 0
+                else:
+                    from_battery = 0.0
 
-                if restleistung_nach_verbrauch > 0:
+                if remaining_power > 0:
                     # Load battery with excess energy
-                    geladene_energie, verluste_laden_akku = self.akku.energie_laden(
-                        restleistung_nach_verbrauch, hour
+                    charged_energie, charge_losses = self.battery.charge_energy(
+                        remaining_power, hour
                     )
-                    rest_überschuss = restleistung_nach_verbrauch - (
-                        geladene_energie + verluste_laden_akku
-                    )
+                    remaining_surplus = remaining_power - (charged_energie + charge_losses)
 
                     # Feed-in to the grid based on remaining capacity
-                    if rest_überschuss > self.max_leistung_wh - verbrauch:
-                        netzeinspeisung = self.max_leistung_wh - verbrauch
-                        verluste += rest_überschuss - netzeinspeisung
+                    if remaining_surplus > self.max_power_wh - consumption:
+                        grid_export = self.max_power_wh - consumption
+                        losses += remaining_surplus - grid_export
                     else:
-                        netzeinspeisung = rest_überschuss
+                        grid_export = remaining_surplus
 
-                    verluste += verluste_laden_akku
-                eigenverbrauch = verbrauch + aus_akku  # Self-consumption is equal to the load
+                    losses += charge_losses
+                self_consumption = (
+                    consumption + from_battery
+                )  # Self-consumption is equal to the load
 
         else:
-            benötigte_energie = verbrauch - erzeugung  # Energy needed from external sources
-            max_akku_leistung = self.akku.max_ladeleistung_w  # Maximum battery discharge power
+            # Case 2: Insufficient generation, cover shortfall
+            shortfall = consumption - generation
+            available_ac_power = max(self.max_power_wh - generation, 0)
 
-            # Calculate remaining AC power available
-            rest_ac_leistung = max(self.max_leistung_wh - erzeugung, 0)
+            # Discharge battery to cover shortfall, if possible
+            battery_discharge, discharge_losses = self.battery.discharge_energy(
+                min(shortfall, available_ac_power), hour
+            )
+            losses += discharge_losses
 
-            # Discharge energy from the battery based on need
-            if benötigte_energie < rest_ac_leistung:
-                aus_akku, akku_entladeverluste = self.akku.energie_abgeben(benötigte_energie, hour)
-            else:
-                aus_akku, akku_entladeverluste = self.akku.energie_abgeben(rest_ac_leistung, hour)
+            # Draw remaining required power from the grid (discharge_losses are already substraved in the battery)
+            grid_import = shortfall - battery_discharge
+            self_consumption = generation + battery_discharge
 
-            verluste += akku_entladeverluste  # Include losses from battery discharge
-            netzbezug = benötigte_energie - aus_akku  # Energy drawn from the grid
-            eigenverbrauch = erzeugung + aus_akku  # Total self-consumption
-
-        return netzeinspeisung, netzbezug, verluste, eigenverbrauch
+        return grid_export, grid_import, losses, self_consumption
