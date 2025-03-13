@@ -679,7 +679,7 @@ class GesamtlastRequest(PydanticBaseModel):
     year_energy: float
     measured_data: List[Dict[str, Any]]
     hours: int
-dw
+
 
 @app.post("/gesamtlast")
 def fastapi_gesamtlast(request: GesamtlastRequest) -> list[float]:
