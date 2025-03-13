@@ -23,6 +23,27 @@ from akkudoktoreos.utils.datetimeutil import to_datetime, to_duration
 logger = get_logger(__name__)
 
 
+def calc_price(eurocent_per_kwh: float) -> float:
+    """Calculate the final electricity price per kilowatt-hour (kWh).
+
+    This calculation is based on the following cost components:
+    - Provider: Tibber
+    - Procurement: 1.81 ct per kWh
+    - Grid usage: 8.87 ct per kWh
+    - Taxes, levies, and surcharges: 8.786 ct per kWh
+    - Value-added tax (VAT): 19% (multiplied by 1.19)
+
+    Args:
+        euro_pro_mwh (float): The base electricity price in € per megawatt-hour (MWh).
+
+    Returns:
+        float: The final electricity price in € per watt-hour (Wh).
+        euro_pro_mwh / 10 = eurocent_pro_kwh
+        eurocent_pro_kwh / 100000 = euro_pro_wh
+    """
+    return round((eurocent_per_kwh + 1.81 + 8.87 + 8.786) * 1.19 / 100000, 6)
+
+
 class AkkudoktorElecPriceMeta(PydanticBaseModel):
     start_timestamp: str
     end_timestamp: str
@@ -166,7 +187,8 @@ class ElecPriceAkkudoktor(ElecPriceProvider):
             if highest_orig_datetime is None or orig_datetime > highest_orig_datetime:
                 highest_orig_datetime = orig_datetime
 
-            price_wh = value.marketpriceEurocentPerKWh / (100 * 1000) + charges_wh
+            # price_wh = value.marketpriceEurocentPerKWh / (100 * 1000) + charges_wh
+            price_wh = calc_price(value.marketpriceEurocentPerKWh)
 
             # Collect all values into the Pandas Series
             series_data.at[orig_datetime] = price_wh

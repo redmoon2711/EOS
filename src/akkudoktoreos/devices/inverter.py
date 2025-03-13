@@ -44,6 +44,22 @@ class Inverter(DeviceBase):
         if self.parameters is not None:
             self.setup()
 
+        self.scr_lookup: dict = {}
+
+    def calculate_scr(self, consumption: float, generation: float) -> float:
+        """Check if the consumption and production is in the lookup table. If not, calculate and store the value."""
+        if consumption not in self.scr_lookup:
+            self.scr_lookup[consumption] = {}
+
+        if generation not in self.scr_lookup[consumption]:
+            scr = self.self_consumption_predictor.calculate_self_consumption(
+                    consumption, generation
+                )
+            self.scr_lookup[consumption][generation] = scr
+            return scr
+
+        return self.scr_lookup[consumption][generation]
+
     def setup(self) -> None:
         if self.initialised:
             return
@@ -76,9 +92,10 @@ class Inverter(DeviceBase):
                 grid_import = -remaining_power  # Negative indicates feeding into the grid
                 self_consumption = self.max_power_wh
             else:
-                scr = self.self_consumption_predictor.calculate_self_consumption(
-                    consumption, generation
-                )
+                # scr = self.self_consumption_predictor.calculate_self_consumption(
+                #    consumption, generation
+                # )
+                scr = self.calculate_scr(consumption, generation)
 
                 # Remaining power after consumption
                 remaining_power = (generation - consumption) * scr  # EVQ
