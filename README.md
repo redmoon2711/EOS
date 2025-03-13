@@ -8,9 +8,19 @@ Documentation can be found at [Akkudoktor-EOS](https://akkudoktor-eos.readthedoc
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## System requirements
+
+- Python >= 3.10, < 3.13
+- Architecture: amd64, aarch64 (armv8)
+- OS: Linux, Windows, macOS
+
+Note: For Python 3.13 some dependencies (e.g. [Pendulum](https://github.com/python-pendulum/Pendulum)) are not yet available on https://pypi.org and have to be manually compiled (a recent [Rust](https://www.rust-lang.org/tools/install) installation is required).
+
+Other architectures (e.g. armv6, armv7) are unsupported for now, because a multitude of dependencies are not available on https://piwheels.org and have to be built manually (a recent Rust installation and [GCC](https://gcc.gnu.org/) are required, Python 3.11 is recommended).
+
 ## Installation
 
-The project requires Python 3.10 or newer. Official docker images can be found at [akkudoktor/eos](https://hub.docker.com/r/akkudoktor/eos).
+Docker images (amd64/aarch64) can be found at [akkudoktor/eos](https://hub.docker.com/r/akkudoktor/eos).
 
 Following sections describe how to locally start the EOS server on `http://localhost:8503`.
 
@@ -23,6 +33,7 @@ Linux:
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e .
 ```
 
 Windows:
@@ -30,9 +41,10 @@ Windows:
 ```cmd
 python -m venv .venv
  .venv\Scripts\pip install -r requirements.txt
+ .venv\Scripts\pip install -e .
 ```
 
-Finally, start the EOS server:
+Finally, start the EOS server to access it at `http://localhost:8503` (API docs at `http://localhost:8503/docs`):
 
 Linux:
 
@@ -47,6 +59,8 @@ Windows:
 ```
 
 ### Docker
+
+Start EOS with following command to access it at `http://localhost:8503` (API docs at `http://localhost:8503/docs`):
 
 ```bash
 docker compose up
