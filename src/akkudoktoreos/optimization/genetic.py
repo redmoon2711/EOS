@@ -62,6 +62,9 @@ class OptimizeResponse(ParametersBaseModel):
     ac_charge: list[float] = Field(
         description="Array with AC charging values as relative power (0-1), other values set to 0."
     )
+    feed_in: list[float] = Field(
+        description="Array with Feed-In values as relative power (0-1), other values set to 0."
+    )
     dc_charge: list[float] = Field(
         description="Array with DC charging values as relative power (0-1), other values set to 0."
     )
@@ -124,7 +127,7 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
 
     def decode_charge_discharge(
         self, discharge_hours_bin: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Decode the input array into ac_charge, dc_charge, and discharge arrays."""
         discharge_hours_bin_np = np.array(discharge_hours_bin)
         len_ac = len(self.possible_charge_values)
@@ -133,7 +136,8 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         # Idle:       0 .. len_ac-1
         # Discharge:  len_ac .. 2*len_ac - 1
         # AC Charge:  2*len_ac .. 3*len_ac - 1
-        # DC optional: 3*len_ac (not allowed), 3*len_ac + 1 (allowed)
+        # Feed In:    3*len_ac .. 4*len_ac - 1
+        # DC optional: 4*len_ac (not allowed), 4*len_ac + 1 (allowed)
 
         # Idle has no charge, Discharge has binary 1, AC Charge has corresponding values
         # Idle states
@@ -146,10 +150,14 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         ac_mask = (discharge_hours_bin_np >= 2 * len_ac) & (discharge_hours_bin_np < 3 * len_ac)
         ac_indices = (discharge_hours_bin_np[ac_mask] - 2 * len_ac).astype(int)
 
+        # Feed states
+        feed_mask = (discharge_hours_bin_np >= 3 * len_ac) & (discharge_hours_bin_np < 4 * len_ac)
+        feed_indices = (discharge_hours_bin_np[feed_mask] - 3 * len_ac).astype(int)
+
         # DC states (if enabled)
         if self.optimize_dc_charge:
-            dc_not_allowed_state = 3 * len_ac
-            dc_allowed_state = 3 * len_ac + 1
+            dc_not_allowed_state = 4 * len_ac
+            dc_allowed_state = 4 * len_ac + 1
             dc_charge = np.where(discharge_hours_bin_np == dc_allowed_state, 1, 0)
         else:
             dc_charge = np.ones_like(discharge_hours_bin_np, dtype=float)
@@ -157,22 +165,27 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         # Generate the result arrays
         discharge = np.zeros_like(discharge_hours_bin_np, dtype=int)
         discharge[discharge_mask] = 1  # Set Discharge states to 1
+        # allowed discharge when feed in
+        discharge[feed_mask] = 1  # Set Discharge states to 1
 
         ac_charge = np.zeros_like(discharge_hours_bin_np, dtype=float)
         ac_charge[ac_mask] = [self.possible_charge_values[i] for i in ac_indices]
 
+        feed_in = np.zeros_like(discharge_hours_bin_np, dtype=float)
+        feed_in[feed_mask] = [self.possible_charge_values[i] for i in feed_indices]
+
         # Idle is just 0, already default.
 
-        return ac_charge, dc_charge, discharge
+        return ac_charge, dc_charge, feed_in, discharge
 
     def mutate(self, individual: list[int]) -> tuple[list[int]]:
         """Custom mutation function for the individual."""
         # Calculate the number of states
         len_ac = len(self.possible_charge_values)
         if self.optimize_dc_charge:
-            total_states = 3 * len_ac + 2
+            total_states = 4 * len_ac + 2
         else:
-            total_states = 3 * len_ac
+            total_states = 4 * len_ac
 
         # 1. Mutating the charge_discharge part
         charge_discharge_part = individual[: self.config.prediction.hours]
@@ -309,13 +322,14 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         # Idle: len_ac states
         # Discharge: len_ac states
         # AC-Charge: len_ac states
+        # Feed In: len_ac states
         # Total without DC: 3 * len_ac
 
         # With DC: + 2 states
         if self.optimize_dc_charge:
-            total_states = 3 * len_ac + 2
+            total_states = 4 * len_ac + 2
         else:
-            total_states = 3 * len_ac
+            total_states = 4 * len_ac
 
         # State space: 0 .. (total_states - 1)
         self.toolbox.register("attr_discharge_state", random.randint, 0, total_states - 1)
@@ -371,13 +385,14 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
                 washingstart_int, global_start_hour=self.ems.start_datetime.hour
             )
 
-        ac, dc, discharge = self.decode_charge_discharge(discharge_hours_bin)
+        ac, dc, feed, discharge = self.decode_charge_discharge(discharge_hours_bin)
 
         self.ems.set_akku_discharge_hours(discharge)
         # Set DC charge hours only if DC optimization is enabled
         if self.optimize_dc_charge:
             self.ems.set_akku_dc_charge_hours(dc)
         self.ems.set_akku_ac_charge_hours(ac)
+        self.ems.set_akku_feedin_hours(feed)
 
         if eautocharge_hours_index is not None:
             eautocharge_hours_float = np.array(
@@ -644,7 +659,9 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
             else None
         )
 
-        ac_charge, dc_charge, discharge = self.decode_charge_discharge(discharge_hours_bin)
+        ac_charge, dc_charge, feed_in, discharge = self.decode_charge_discharge(discharge_hours_bin)
+        print(f"OUTPUT: {ac_charge}, {dc_charge}, {feed_in}, {discharge}")
+
         # Visualize the results
         visualize = {
             "ac_charge": ac_charge.tolist(),
@@ -666,6 +683,7 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         return OptimizeResponse(
             **{
                 "ac_charge": ac_charge,
+                "feed_in": feed_in,
                 "dc_charge": dc_charge,
                 "discharge_allowed": discharge,
                 "eautocharge_hours_float": eautocharge_hours_float,
