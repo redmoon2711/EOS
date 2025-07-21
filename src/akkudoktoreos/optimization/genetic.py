@@ -62,6 +62,9 @@ class OptimizeResponse(ParametersBaseModel):
     ac_charge: list[float] = Field(
         description="Array with AC charging values as relative power (0-1), other values set to 0."
     )
+    feed_in: list[float] = Field(
+        description="Array with Feed-In values as relative power (0-1), other values set to 0."
+    )
     dc_charge: list[float] = Field(
         description="Array with DC charging values as relative power (0-1), other values set to 0."
     )
@@ -111,6 +114,7 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         self.possible_charge_values = self.config.optimization.ev_available_charge_rates_percent
         self.verbose = verbose
         self.fix_seed = fixed_seed
+        self.control_feed_in = True
         self.optimize_ev = True
         self.optimize_dc_charge = False
         self.fitness_history: dict[str, Any] = {}
@@ -124,8 +128,26 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
 
     def decode_charge_discharge(
         self, discharge_hours_bin: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Decode the input array into ac_charge, dc_charge, and discharge arrays."""
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Decode the input array into ac_charge, dc_charge, feed_in, discharge arrays.
+
+        Categorization:
+        Idle:      ac_charge = 0, dc_charge = 1, feed_in = 0, discharge = 0
+        Discharge: ac_charge = 0, dc_charge = 1, feed_in = 0, discharge = 1
+        AC Charge: ac_charge = x, dc_charge = 1, feed_in = 0, discharge = 0
+        Feed In:   ac_charge = 0, dc_charge = 1, feed_in = x, discharge = 1
+        DC Charge: ac_charge = 0, dc_charge = x, feed_in = 0, discharge = 0
+
+        Parameters:
+            discharge_hours_bin (np.ndarray): Binary array representing discharge hours.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                - ac_charge: Array with AC charge values.
+                - dc_charge: Array with DC charge values.
+                - feed_in: Array with Feed-In values.
+                - discharge: Array indicating discharge states (1 for discharge, 0 otherwise).
+        """
         discharge_hours_bin_np = np.array(discharge_hours_bin)
         len_ac = len(self.possible_charge_values)
 
@@ -133,46 +155,55 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         # Idle:       0 .. len_ac-1
         # Discharge:  len_ac .. 2*len_ac - 1
         # AC Charge:  2*len_ac .. 3*len_ac - 1
-        # DC optional: 3*len_ac (not allowed), 3*len_ac + 1 (allowed)
+        # Feed In:    3*len_ac .. 4*len_ac - 1
+        # DC optional: 4*len_ac (not allowed), 4*len_ac + 1 (allowed)
 
-        # Idle has no charge, Discharge has binary 1, AC Charge has corresponding values
         # Idle states
-        idle_mask = (discharge_hours_bin_np >= 0) & (discharge_hours_bin_np < len_ac)
-
-        # Discharge states
-        discharge_mask = (discharge_hours_bin_np >= len_ac) & (discharge_hours_bin_np < 2 * len_ac)
-
-        # AC states
-        ac_mask = (discharge_hours_bin_np >= 2 * len_ac) & (discharge_hours_bin_np < 3 * len_ac)
-        ac_indices = (discharge_hours_bin_np[ac_mask] - 2 * len_ac).astype(int)
-
-        # DC states (if enabled)
-        if self.optimize_dc_charge:
-            dc_not_allowed_state = 3 * len_ac
-            dc_allowed_state = 3 * len_ac + 1
-            dc_charge = np.where(discharge_hours_bin_np == dc_allowed_state, 1, 0)
-        else:
-            dc_charge = np.ones_like(discharge_hours_bin_np, dtype=float)
-
-        # Generate the result arrays
-        discharge = np.zeros_like(discharge_hours_bin_np, dtype=int)
-        discharge[discharge_mask] = 1  # Set Discharge states to 1
-
-        ac_charge = np.zeros_like(discharge_hours_bin_np, dtype=float)
-        ac_charge[ac_mask] = [self.possible_charge_values[i] for i in ac_indices]
-
+        # idle_mask = (discharge_hours_bin_np >= 0) & (discharge_hours_bin_np < len_ac)
         # Idle is just 0, already default.
 
-        return ac_charge, dc_charge, discharge
+        # Discharge states
+        discharge = np.zeros_like(discharge_hours_bin_np, dtype=int)
+        discharge_mask = (discharge_hours_bin_np >= len_ac) & (discharge_hours_bin_np < 2 * len_ac)
+        discharge[discharge_mask] = 1  # Set Discharge states to 1
+
+        # AC states
+        ac_charge = np.zeros_like(discharge_hours_bin_np, dtype=float)
+        ac_mask = (discharge_hours_bin_np >= 2 * len_ac) & (discharge_hours_bin_np < 3 * len_ac)
+        ac_indices = (discharge_hours_bin_np[ac_mask] - 2 * len_ac).astype(int)
+        ac_charge[ac_mask] = [self.possible_charge_values[i] for i in ac_indices]
+
+        # Feed states (if enabled)
+        feed_in = np.zeros_like(discharge_hours_bin_np, dtype=float)
+        if self.control_feed_in:
+            feed_mask = (discharge_hours_bin_np >= 3 * len_ac) & (
+                discharge_hours_bin_np < 4 * len_ac
+            )
+            feed_indices = (discharge_hours_bin_np[feed_mask] - 3 * len_ac).astype(int)
+            feed_in[feed_mask] = [self.possible_charge_values[i] for i in feed_indices]
+            # allowed discharge when feed in
+            discharge[feed_mask] = 1  # Set Discharge states to 1
+
+        # DC states (if enabled)
+        dc_charge = np.ones_like(discharge_hours_bin_np, dtype=float)
+        if self.optimize_dc_charge:
+            # dc_not_allowed_state = 4 * len_ac
+            dc_allowed_state = 4 * len_ac + 1
+            dc_charge = np.where(discharge_hours_bin_np == dc_allowed_state, 1, 0)
+
+        return ac_charge, dc_charge, feed_in, discharge
+
+    def calulate_total_states(self) -> int:
+        """Calculate the number of states and return it."""
+        len_ac = len(self.possible_charge_values)
+        total_states = 4 * len_ac if self.control_feed_in else 3 * len_ac
+        total_states += 2 if self.optimize_dc_charge else 0
+        return total_states
 
     def mutate(self, individual: list[int]) -> tuple[list[int]]:
         """Custom mutation function for the individual."""
         # Calculate the number of states
-        len_ac = len(self.possible_charge_values)
-        if self.optimize_dc_charge:
-            total_states = 3 * len_ac + 2
-        else:
-            total_states = 3 * len_ac
+        total_states = self.calulate_total_states()
 
         # 1. Mutating the charge_discharge part
         charge_discharge_part = individual[: self.config.prediction.hours]
@@ -303,19 +334,10 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         creator.create("Individual", list, fitness=creator.FitnessMin)
 
         self.toolbox = base.Toolbox()
+
+        # Calculate the number of states
         len_ac = len(self.possible_charge_values)
-
-        # Total number of states without DC:
-        # Idle: len_ac states
-        # Discharge: len_ac states
-        # AC-Charge: len_ac states
-        # Total without DC: 3 * len_ac
-
-        # With DC: + 2 states
-        if self.optimize_dc_charge:
-            total_states = 3 * len_ac + 2
-        else:
-            total_states = 3 * len_ac
+        total_states = self.calulate_total_states()
 
         # State space: 0 .. (total_states - 1)
         self.toolbox.register("attr_discharge_state", random.randint, 0, total_states - 1)
@@ -371,13 +393,14 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
                 washingstart_int, global_start_hour=self.ems.start_datetime.hour
             )
 
-        ac, dc, discharge = self.decode_charge_discharge(discharge_hours_bin)
+        ac, dc, feed, discharge = self.decode_charge_discharge(discharge_hours_bin)
 
         self.ems.set_akku_discharge_hours(discharge)
         # Set DC charge hours only if DC optimization is enabled
         if self.optimize_dc_charge:
             self.ems.set_akku_dc_charge_hours(dc)
         self.ems.set_akku_ac_charge_hours(ac)
+        self.ems.set_feed_in_hours(feed)
 
         if eautocharge_hours_index is not None:
             eautocharge_hours_float = np.array(
@@ -644,7 +667,8 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
             else None
         )
 
-        ac_charge, dc_charge, discharge = self.decode_charge_discharge(discharge_hours_bin)
+        ac_charge, dc_charge, feed_in, discharge = self.decode_charge_discharge(discharge_hours_bin)
+
         # Visualize the results
         visualize = {
             "ac_charge": ac_charge.tolist(),
@@ -666,6 +690,7 @@ class optimization_problem(ConfigMixin, DevicesMixin, EnergyManagementSystemMixi
         return OptimizeResponse(
             **{
                 "ac_charge": ac_charge,
+                "feed_in": feed_in,
                 "dc_charge": dc_charge,
                 "discharge_allowed": discharge,
                 "eautocharge_hours_float": eautocharge_hours_float,

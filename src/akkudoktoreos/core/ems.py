@@ -183,6 +183,7 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
     # -------------------------
 
     ac_charge_hours: Optional[NDArray[Shape["*"], float]] = Field(default=None, description="TBD")
+    feed_in_hours: Optional[NDArray[Shape["*"], float]] = Field(default=None, description="TBD")
     dc_charge_hours: Optional[NDArray[Shape["*"], float]] = Field(default=None, description="TBD")
     ev_charge_hours: Optional[NDArray[Shape["*"], float]] = Field(default=None, description="TBD")
 
@@ -216,6 +217,7 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
         self.home_appliance = home_appliance
         self.inverter = inverter
         self.ac_charge_hours = np.full(self.config.prediction.hours, 0.0)
+        self.feed_in_hours = np.full(self.config.prediction.hours, 0.0)
         self.dc_charge_hours = np.full(self.config.prediction.hours, 1.0)
         self.ev_charge_hours = np.full(self.config.prediction.hours, 0.0)
 
@@ -228,6 +230,9 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
 
     def set_akku_dc_charge_hours(self, ds: np.ndarray) -> None:
         self.dc_charge_hours = ds
+
+    def set_feed_in_hours(self, ds: np.ndarray) -> None:
+        self.feed_in_hours = ds
 
     def set_ev_charge_hours(self, ds: np.ndarray) -> None:
         self.ev_charge_hours = ds
@@ -389,6 +394,7 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
         elect_price_hourly = np.array(self.elect_price_hourly)
         ev_charge_hours = np.array(self.ev_charge_hours)
         ac_charge_hours = np.array(self.ac_charge_hours)
+        feed_in_hours = np.array(self.feed_in_hours)
         dc_charge_hours = np.array(self.dc_charge_hours)
         elect_revenue_per_hour_arr = np.array(self.elect_revenue_per_hour_arr)
 
@@ -458,14 +464,22 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
             )
 
             hour_ac_charge = ac_charge_hours[hour]
+            hour_feed_in = feed_in_hours[hour]
             hour_dc_charge = dc_charge_hours[hour]
             hourly_electricity_price = elect_price_hourly[hour]
             hourly_energy_revenue = elect_revenue_per_hour_arr[hour]
 
             battery.set_charge_allowed_for_hour(hour_dc_charge, hour)
 
+            energy_feedin_grid_static = 0
             if inverter:
                 energy_produced = pv_prediction_wh[hour]
+
+                # Feed in
+                if hour_feed_in > 0.0:
+                    energy_feedin_grid_static = inverter.max_power_wh * hour_feed_in
+                    energy_produced -= energy_feedin_grid_static
+
                 (
                     energy_feedin_grid_actual,
                     energy_consumption_grid_actual,
@@ -486,7 +500,7 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
                 losses_wh_per_hour[hour_idx] += battery_losses_actual
 
             # Update hourly arrays
-            feedin_energy_per_hour[hour_idx] = energy_feedin_grid_actual
+            feedin_energy_per_hour[hour_idx] = energy_feedin_grid_static + energy_feedin_grid_actual
             consumption_energy_per_hour[hour_idx] = energy_consumption_grid_actual
             losses_wh_per_hour[hour_idx] += losses
             loads_energy_per_hour[hour_idx] = consumption
@@ -494,7 +508,9 @@ class EnergyManagement(SingletonMixin, ConfigMixin, PredictionMixin, PydanticBas
 
             # Financial calculations
             costs_per_hour[hour_idx] = energy_consumption_grid_actual * hourly_electricity_price
-            revenue_per_hour[hour_idx] = energy_feedin_grid_actual * hourly_energy_revenue
+            revenue_per_hour[hour_idx] = (
+                energy_feedin_grid_static + energy_feedin_grid_actual
+            ) * hourly_energy_revenue
 
         total_cost = np.nansum(costs_per_hour)
         total_losses = np.nansum(losses_wh_per_hour)
